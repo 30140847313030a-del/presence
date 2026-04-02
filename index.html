@@ -5,28 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CONF2026 Booth Team 換班助手</title>
     <style>
-        :root { --primary: #1d4ed8; --secondary: #64748b; --success: #22c55e; --bg: #f8fafc; }
+        :root { --primary: #1d4ed8; --secondary: #64748b; --success: #22c55e; --accent: #ea580c; --bg: #f8fafc; }
         body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: var(--bg); padding: 15px; color: #1e293b; }
         .container { max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
         h1 { font-size: 1.4rem; color: var(--primary); text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 25px; }
+        h2 { font-size: 1.2rem; color: var(--secondary); border-left: 4px solid var(--primary); padding-left: 10px; margin-top: 30px; margin-bottom: 15px; }
+        h2.roster-title { border-left-color: var(--accent); }
         .section { margin-bottom: 25px; }
         label { display: block; margin-bottom: 10px; font-weight: bold; color: var(--secondary); }
         select { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; cursor: pointer; }
         .shift-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; margin-bottom: 10px; cursor: pointer; background: #fff; transition: 0.2s; display: flex; justify-content: space-between; align-items: center; }
         .shift-card:hover { border-color: var(--primary); background: #f0f7ff; transform: translateY(-1px); }
         .tag-date { background: var(--primary); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin-right: 8px; }
+        .tag-pos { background: var(--accent); color: white; padding: 3px 10px; border-radius: 6px; font-size: 0.85rem; margin-right: 12px; min-width: 60px; text-align: center; display: inline-block; }
         .pos { font-weight: bold; color: #0f172a; text-align: right;}
         .helper-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; border-radius: 10px; margin-top: 20px; display: none; }
+        .roster-box { background: #fff7ed; border: 1px solid #fed7aa; padding: 20px; border-radius: 10px; margin-top: 15px; display: none; }
         .helper-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
         .name-pill { background: white; border: 1px solid #dcfce7; padding: 6px 14px; border-radius: 20px; font-size: 0.9rem; color: #15803d; font-weight: 500; }
         .empty { text-align: center; color: #94a3b8; padding: 20px; background: #f1f5f9; border-radius: 8px; }
+        .divider { height: 1px; background: #e2e8f0; margin: 35px 0; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>CONF2026 Booth Team 換班查詢系統</h1>
+    <h1>CONF2026 Booth Team 查詢系統</h1>
     
+    <h2>🧑‍🤝‍🧑 個人班表與找代班</h2>
     <div class="section">
         <label>1. 選擇您的姓名</label>
         <select id="nameSelect" onchange="updateUI()">
@@ -45,11 +51,27 @@
         <div id="helperList" class="helper-list"></div>
         <p style="font-size: 0.75rem; color: #666; margin-top: 15px;">* 系統已自動排除：該時段已在服事者、在「不可服事表」註記困難者，以及您自己。</p>
     </div>
+
+    <div class="divider"></div>
+
+    <h2 class="roster-title">📅 依時段查詢值班名單</h2>
+    <div class="section">
+        <label>請選擇要查詢的時段</label>
+        <select id="timeSelect" onchange="showRoster()">
+            <option value="">-- 請下拉選擇時段 --</option>
+        </select>
+    </div>
+    
+    <div id="rosterArea" class="roster-box">
+        <div id="rosterTitle" style="font-weight: bold; color: var(--accent); border-bottom: 1px dashed #fed7aa; padding-bottom: 10px;"></div>
+        <div id="rosterList" style="margin-top: 15px; line-height: 2;"></div>
+    </div>
+
 </div>
 
 <script>
 // ==========================================
-// 核心數據 (時間格式已統一為 AM/PM)
+// 核心數據
 // ==========================================
 const db = {
   "members": [
@@ -265,7 +287,7 @@ const db = {
 };
 
 // ==========================================
-// 網頁互動邏輯 (時段合併與換班比對)
+// 網頁互動邏輯 (個人班表與找代班)
 // ==========================================
 const nameSel = document.getElementById('nameSelect');
 db.members.sort().forEach(n => {
@@ -286,7 +308,6 @@ function updateUI() {
     area.style.display = 'block';
     const myShifts = db.schedule.filter(s => s.name === name);
     
-    // 將相同 timeID 的排班合併
     const mergedShiftsMap = {};
     myShifts.forEach(s => {
         if (!mergedShiftsMap[s.timeID]) {
@@ -341,6 +362,78 @@ function findHelpers(timeID, myName, myPos) {
         : '<div style="color:red; width:100%; text-align:center; padding: 10px;">此時段暫無完全空閒的同工，建議聯繫組長協調。</div>';
 
     helperArea.scrollIntoView({ behavior: 'smooth' });
+}
+
+// ==========================================
+// 網頁互動邏輯 (新增功能：依時段查詢值班名單 - 絕對時間排序)
+// ==========================================
+const timeSel = document.getElementById('timeSelect');
+
+// 定義每個時段的絕對排序權重 (保證早->中->晚)
+const timeOrderMap = {
+    "4/30 7AM-4PM": 1,
+    "4/30 4PM-10PM": 2,
+    "5/1 7AM-12PM": 3,
+    "5/1 12PM-5PM": 4,
+    "5/1 5PM-10PM": 5,
+    "5/2 7AM-12PM": 6,
+    "5/2 12PM-5PM": 7,
+    "5/2 5PM-10PM": 8
+};
+
+const uniqueTimes = [];
+const timeOptions = [];
+
+db.schedule.forEach(s => {
+    if (!uniqueTimes.includes(s.timeID)) {
+        uniqueTimes.push(s.timeID);
+        timeOptions.push({ id: s.timeID, label: `${s.date} ${s.timeLabel}` });
+    }
+});
+
+// 使用自定義的權重地圖來進行絕對排序
+timeOptions.sort((a, b) => (timeOrderMap[a.id] || 99) - (timeOrderMap[b.id] || 99));
+
+timeOptions.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.label;
+    timeSel.appendChild(opt);
+});
+
+function showRoster() {
+    const tId = timeSel.value;
+    const area = document.getElementById('rosterArea');
+    const list = document.getElementById('rosterList');
+    const title = document.getElementById('rosterTitle');
+
+    if (!tId) { area.style.display = 'none'; return; }
+
+    area.style.display = 'block';
+    
+    const workers = db.schedule.filter(s => s.timeID === tId);
+    const uniqueWorkers = [...new Set(workers.map(w => w.name))];
+    
+    title.textContent = `✅ 此時段共有 ${uniqueWorkers.length} 人值班：`;
+
+    const posMap = {};
+    workers.forEach(w => {
+        const cleanPos = w.pos.split('(')[0]; 
+        if(!posMap[cleanPos]) posMap[cleanPos] = [];
+        if(!posMap[cleanPos].includes(w.name)) {
+            posMap[cleanPos].push(w.name);
+        }
+    });
+
+    let html = '';
+    for (const [pos, names] of Object.entries(posMap)) {
+        html += `<div style="margin-bottom: 12px; border-bottom: 1px solid #ffedd5; padding-bottom: 8px;">
+                    <span class="tag-pos">${pos}</span>
+                    ${names.map(n => `<span style="display:inline-block; margin-right:12px; font-weight:500; color:#475569;">${n}</span>`).join('')}
+                 </div>`;
+    }
+
+    list.innerHTML = html;
 }
 </script>
 </body>
