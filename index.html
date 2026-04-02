@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CONF2026 Booth Team 換班助手</title>
+    <style>
+        :root { --primary: #1d4ed8; --secondary: #64748b; --success: #22c55e; --bg: #f8fafc; }
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: var(--bg); padding: 15px; color: #1e293b; }
+        .container { max-width: 700px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        h1 { font-size: 1.4rem; color: var(--primary); text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 25px; }
+        .section { margin-bottom: 25px; }
+        label { display: block; margin-bottom: 10px; font-weight: bold; color: var(--secondary); }
+        select { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; cursor: pointer; }
+        .shift-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; margin-bottom: 10px; cursor: pointer; background: #fff; transition: 0.2s; display: flex; justify-content: space-between; align-items: center; }
+        .shift-card:hover { border-color: var(--primary); background: #f0f7ff; transform: translateY(-1px); }
+        .tag-date { background: var(--primary); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin-right: 8px; }
+        .pos { font-weight: bold; color: #0f172a; text-align: right;}
+        .helper-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; border-radius: 10px; margin-top: 20px; display: none; }
+        .helper-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+        .name-pill { background: white; border: 1px solid #dcfce7; padding: 6px 14px; border-radius: 20px; font-size: 0.9rem; color: #15803d; font-weight: 500; }
+        .empty { text-align: center; color: #94a3b8; padding: 20px; background: #f1f5f9; border-radius: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>CONF2026 Booth Team 換班查詢系統</h1>
+    
+    <div class="section">
+        <label>1. 選擇您的姓名</label>
+        <select id="nameSelect" onchange="updateUI()">
+            <option value="">-- 請下拉選擇您的姓名 --</option>
+        </select>
+    </div>
+
+    <div id="myScheduleArea" class="section" style="display:none;">
+        <label>2. 您的排班時段 (點擊任一時段尋找代班人)</label>
+        <div id="shiftList"></div>
+    </div>
+
+    <div id="helperArea" class="helper-box">
+        <div id="targetTitle" style="font-weight: bold; color: var(--primary); border-bottom: 1px dashed #bbf7d0; padding-bottom: 10px;"></div>
+        <div style="margin-top:15px; font-weight: bold;">💡 建議找以下同工協調換班：</div>
+        <div id="helperList" class="helper-list"></div>
+        <p style="font-size: 0.75rem; color: #666; margin-top: 15px;">* 系統已自動排除：該時段已在服事者、在「不可服事表」註記困難者，以及您自己。</p>
+    </div>
+</div>
+
+<script>
+// ==========================================
+// 核心數據 (已將 4/30 更新為 07:00-16:00，5/1-5/2 維持 07:00-12:00)
+// ==========================================
+const db = {
+  "members": [
+    "Mavis", "Dora", "可涓 Rei", "Linda", "Libby", "Michael", "Wilson", "Cindy", "Sophie", "James", 
+    "Grace Chien", "Vivian", "Celine", "lumin", "Lia", "Angel", "Ivy", "Iris", "Amanda", "Joshua", 
+    "Claire Lin", "Jeremy Wu", "Shopping Yi", "MimiChen", "Jane"
+  ],
+  "unavailable": {
+    "Dora": ["5/1 12PM-5PM"],
+    "Linda": ["5/1 07:00-12:00", "5/2 07:00-12:00"],
+    "Michael": ["4/30 07:00-16:00", "4/30 4PM-10PM"],
+    "Sophie": ["4/30 07:00-16:00", "5/2 07:00-12:00", "5/2 12PM-5PM"],
+    "James": ["4/30 07:00-16:00", "5/2 07:00-12:00", "5/2 12PM-5PM"],
+    "lumin": ["4/30 07:00-16:00", "5/2 12PM-5PM", "5/2 5PM-10PM"],
+    "Lia": ["4/30 07:00-16:00", "4/30 4PM-10PM"],
+    "Angel": ["4/30 07:00-16:00"],
+    "Ivy": ["5/1 07:00-12:00", "5/2 07:00-12:00"],
+    "Iris": ["4/30 07:00-16:00", "4/30 4PM-10PM", "5/1 07:00-12:00", "5/1 12PM-5PM"],
+    "Claire Lin": ["5/2 5PM-10PM"]
+  },
+  "schedule": [
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Mavis"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Mavis"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Dora"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Dora"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "諮詢台(2)", "name": "可涓 Rei"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "諮詢台", "name": "可涓 Rei"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Linda"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Linda"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Libby"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Libby"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Wilson"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Wilson"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Cindy"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Cindy"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Sophie"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "James"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Grace Chien"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Grace Chien"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Vivian"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "諮詢台(2)", "name": "Vivian"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Vivian"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "諮詢台", "name": "Vivian"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "販售組(8)", "name": "Cindy"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "販售組(5-6)", "name": "Cindy"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "販售組(8)", "name": "Celine"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "販售組(5-6)", "name": "Celine"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "lumin"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "販售組(5-6)", "name": "Angel"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "販售組(8)", "name": "Ivy"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Ivy"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "販售組(8)", "name": "Amanda"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "販售組(5-6)", "name": "Amanda"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "販售組(8)", "name": "Joshua"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "販售組(5-6)", "name": "Joshua"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "販售組(8)", "name": "Claire Lin"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "販售組(5-6)", "name": "Claire Lin"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "販售組(8)", "name": "Jeremy Wu"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "販售組(5-6)", "name": "Jeremy Wu"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Shopping Yi"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Shopping Yi"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "MimiChen"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "MimiChen"},
+    {"date": "4/30", "timeID": "4/30 07:00-16:00", "timeLabel": "07:00-16:00", "pos": "報到組(10)", "name": "Jane"},
+    {"date": "4/30", "timeID": "4/30 4PM-10PM", "timeLabel": "4PM-10PM", "pos": "報到組(11)", "name": "Jane"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "Dora"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "Dora"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Dora"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Dora"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "可涓 Rei"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "可涓 Rei"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "可涓 Rei"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "可涓 Rei"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Linda"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Linda"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Linda"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Linda"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "Libby"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "Libby"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Libby"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Libby"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "Michael"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "Michael"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Michael"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Michael"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "Wilson"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "Wilson"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Wilson"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Wilson"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Cindy"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Cindy"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Cindy"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Cindy"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Sophie"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Sophie"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Sophie"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Sophie"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "James"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "James"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "James"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "James"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "Grace Chien"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "Grace Chien"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Grace Chien"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Grace Chien"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "Vivian"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Vivian"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Vivian"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Cindy"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Cindy"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Celine"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Celine"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Celine"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "lumin"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "lumin"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Lia"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Lia"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Lia"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Angel"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Angel"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Ivy"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Ivy"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Iris"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "Amanda"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Amanda"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "Joshua"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Joshua"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Joshua"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Claire Lin"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Claire Lin"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Jeremy Wu"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Jeremy Wu"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Jeremy Wu"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "Shopping Yi"},
+    {"date": "5/1", "timeID": "5/1 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Shopping Yi"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Shopping Yi"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "MimiChen"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "MimiChen"},
+    {"date": "5/1", "timeID": "5/1 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Jane"},
+    {"date": "5/1", "timeID": "5/1 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Jane"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "Dora"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "Dora"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Dora"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Dora"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "可涓 Rei"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "可涓 Rei"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "可涓 Rei"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "可涓 Rei"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Linda"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Linda"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Linda"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Linda"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Libby"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Libby"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Libby"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Libby"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Michael"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Michael"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Michael"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Michael"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Wilson"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Wilson"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Wilson"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Wilson"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "Cindy"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "Cindy"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Cindy"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Cindy"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "Sophie"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "Sophie"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "報到組", "name": "James"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "諮詢台", "name": "James"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "報到組", "name": "Grace Chien"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "諮詢台", "name": "Grace Chien"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "報到組", "name": "Grace Chien"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "諮詢台", "name": "Grace Chien"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "Vivian"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Vivian"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Vivian"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Cindy"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Cindy"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "Celine"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Celine"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Celine"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "lumin"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Lia"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Lia"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Angel"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Angel"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Ivy"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Ivy"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "Iris"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Iris"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Amanda"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Amanda"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Joshua"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Joshua"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Joshua"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Claire Lin"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Claire Lin"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "Jeremy Wu"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Jeremy Wu"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "Jeremy Wu"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Shopping Yi"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "THC", "name": "Shopping Yi"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "THC", "name": "MimiChen"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "MimiChen"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "販售組", "name": "MimiChen"},
+    {"date": "5/2", "timeID": "5/2 07:00-12:00", "timeLabel": "07:00-12:00", "pos": "販售組", "name": "Jane"},
+    {"date": "5/2", "timeID": "5/2 12PM-5PM", "timeLabel": "12PM-5PM", "pos": "販售組", "name": "Jane"},
+    {"date": "5/2", "timeID": "5/2 5PM-10PM", "timeLabel": "5PM-10PM", "pos": "THC", "name": "Jane"}
+  ]
+};
+
+// ==========================================
+// 網頁互動邏輯 (時段合併與換班比對)
+// ==========================================
+const nameSel = document.getElementById('nameSelect');
+db.members.sort().forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n;
+    opt.textContent = n;
+    nameSel.appendChild(opt);
+});
+
+function updateUI() {
+    const name = nameSel.value;
+    const area = document.getElementById('myScheduleArea');
+    const list = document.getElementById('shiftList');
+    document.getElementById('helperArea').style.display = 'none';
+
+    if(!name) { area.style.display = 'none'; return; }
+    
+    area.style.display = 'block';
+    const myShifts = db.schedule.filter(s => s.name === name);
+    
+    // 將相同 timeID 的排班合併
+    const mergedShiftsMap = {};
+    myShifts.forEach(s => {
+        if (!mergedShiftsMap[s.timeID]) {
+            mergedShiftsMap[s.timeID] = {
+                date: s.date,
+                timeID: s.timeID,
+                timeLabel: s.timeLabel,
+                name: s.name,
+                posArray: [s.pos]
+            };
+        } else {
+            if (!mergedShiftsMap[s.timeID].posArray.includes(s.pos)) {
+                mergedShiftsMap[s.timeID].posArray.push(s.pos);
+            }
+        }
+    });
+
+    const mergedShifts = Object.values(mergedShiftsMap);
+
+    list.innerHTML = mergedShifts.length > 0 
+        ? mergedShifts.map(s => {
+            const joinedPos = s.posArray.join(' & ');
+            return `
+            <div class="shift-card" onclick="findHelpers('${s.timeID}', '${s.name}', '${joinedPos}')">
+                <div><span class="tag-date">${s.date}</span> ${s.timeLabel}</div>
+                <div class="pos">${joinedPos}</div>
+            </div>
+            `;
+        }).join('')
+        : '<div class="empty">您在這三天目前沒有被分配服事。</div>';
+}
+
+function findHelpers(timeID, myName, myPos) {
+    const helperArea = document.getElementById('helperArea');
+    const helperList = document.getElementById('helperList');
+    const targetTitle = document.getElementById('targetTitle');
+    
+    helperArea.style.display = 'block';
+    targetTitle.textContent = `針對時段：${timeID} (${myPos})`;
+
+    const busyPeople = db.schedule.filter(s => s.timeID === timeID).map(s => s.name);
+    
+    const candidates = db.members.filter(m => {
+        const isWorking = busyPeople.includes(m);
+        const isMarkedNo = db.unavailable[m] && db.unavailable[m].includes(timeID);
+        const isSelf = m === myName;
+        return !isWorking && !isMarkedNo && !isSelf;
+    });
+
+    helperList.innerHTML = candidates.length > 0
+        ? candidates.map(c => `<div class="name-pill">${c}</div>`).join('')
+        : '<div style="color:red; width:100%; text-align:center; padding: 10px;">此時段暫無完全空閒的同工，建議聯繫組長協調。</div>';
+
+    helperArea.scrollIntoView({ behavior: 'smooth' });
+}
+</script>
+</body>
+</html>
